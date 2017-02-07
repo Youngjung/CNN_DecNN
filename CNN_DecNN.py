@@ -1,4 +1,4 @@
-# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
+﻿# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,13 +40,13 @@ import re
 import sys
 import tarfile
 
-from six.moves import urllib
 import tensorflow as tf
 slim = tf.contrib.slim
 import pdb
 
 FLAGS = tf.app.flags.FLAGS
-import flags
+import flags_win
+from unpool import unpool_layer_fixed
 
 # Constants describing the training process.
 MOVING_AVERAGE_DECAY = 0.9999		 # The decay to use for the moving average.
@@ -160,97 +160,26 @@ def inference( images, num_classes ):
 	with tf.variable_scope('CNN_S') as sc:
 		end_points['conv1'] = slim.conv2d( images, 96, [7, 7], stride=2, padding='VALID', scope='conv1')
 		end_points['lrn'] = tf.nn.local_response_normalization( end_points['conv1'] )
-		end_points['pool1'], argmax['pool1'] = tf.nn.max_pool_with_argmax(end_points['lrn'], [3, 3], stride=3, scope='pool1')
+		end_points['pool1'] = slim.max_pool2d(end_points['lrn'], [3, 3], stride=3, scope='pool1')
 		end_points['conv2'] = slim.conv2d( end_points['pool1'], 256, [5, 5], stride=1, padding='SAME', scope='conv2')
-		end_points['pool2'], argmax['pool2'] = tf.nn.max_pool_with_argmax(end_points['conv2'], [2, 2], stride=2, scope='pool2')
+		end_points['pool2'] = slim.max_pool2d(end_points['conv2'], [2, 2], stride=2, scope='pool2')
 		end_points['conv3'] = slim.conv2d( end_points['pool2'], 512, [5, 5], stride=1, padding='SAME', scope='conv3')
 		end_points['conv4'] = slim.conv2d( end_points['conv3'], 512, [5, 5], stride=1, padding='SAME', scope='conv4')
 		end_points['conv5'] = slim.conv2d( end_points['conv4'], 512, [5, 5], stride=1, padding='SAME', scope='conv5')
-		end_points['pool5'], argmax['pool5'] = tf.nn.max_pool_with_argmax(end_points['conv5'], [3, 3], stride=3, scope='pool5')
+		end_points['pool5'] = slim.max_pool2d(end_points['conv5'], [3, 3], stride=3, scope='pool5')
 	with tf.variable_scope('DecNN') as sc:
-		end_points['unpool1'] = unpool_layerend_points['lrn'], [3, 3], stride=3, scope='pool1')
-		end_points['conv1'] = slim.conv2d( images, 96, [7, 7], stride=2, padding='VALID', scope='conv1')
-		net = end_points['pool5']
+		pdb.set_trace()
+		end_points['unpool1']  = unpool_layer_fixed( end_points['pool5'], 3 )
+		end_points['deconv1'] = slim.conv2d_transpose( end_points['unpool1'], 512, [5, 5], stride=1, padding='SAME', scope='deconv1')
+		end_points['deconv1fc'] = slim.conv2d( end_points['deconv1'], 512, [1, 1], stride=1, padding='VALID', scope='deconv1fc')
+		end_points['unpool2']  = unpool_layer_fixed( end_points['deconv1fc'], 3 )
+		end_points['deconv2'] = slim.conv2d_transpose( end_points['unpool2'], 512, [5, 5], stride=1, padding='SAME', scope='deconv2')
+		end_points['deconv2fc'] = slim.conv2d( end_points['deconv2'], 256, [1, 1], stride=1, padding='VALID', scope='deconv2fc')
+		end_points['unpool3']  = unpool_layer_fixed( end_points['deconv2fc'], 3 )
+		end_points['deconv3'] = slim.conv2d_transpose( end_points['unpool3'], 512, [5, 5], stride=1, padding='SAME', scope='deconv3')
+		end_points['deconv3fc'] = slim.conv2d( end_points['deconv3'], 96, [1, 1], stride=1, padding='VALID', scope='deconv3fc')
+	net = end_points['deconv3fc']
 	return net, end_points
-
-def unravel_argmax(self, argmax, shape):
-	output_list = []
-	output_list.append(argmax // (shape[2] * shape[3]))
-	output_list.append(argmax % (shape[2] * shape[3]) // shape[3])
-	return tf.pack(output_list)
-
-def unpool_layer(self, x, kernel, raveled_argmax, out_shape):
-	argmax = self.unravel_argmax(raveled_argmax, tf.to_int64(out_shape))
-	output = tf.zeros([out_shape[1], out_shape[2], out_shape[3]])
-
-	height = tf.shape(output)[0]
-	width = tf.shape(output)[1]
-	channels = tf.shape(output)[2]
-
-	t1 = tf.to_int64(tf.range(channels))
-	t1 = tf.tile(t1, [((width + 1) // kernel) * ((height + 1) // kernel)])
-	t1 = tf.reshape(t1, [-1, channels])
-	t1 = tf.transpose(t1, perm=[1, 0])
-	t1 = tf.reshape(t1, [channels, (height + 1) // kernel, (width + 1) // kernel, 1])
-
-	t2 = tf.squeeze(argmax)
-	t2 = tf.pack((t2[0], t2[1]), axis=0)
-	t2 = tf.transpose(t2, perm=[3, 1, 2, 0])
-
-	t = tf.concat(3, [t2, t1])
-	indices = tf.reshape(t, [((height + 1) // kernel) * ((width + 1) // kernel) * channels, 3])
-
-	x1 = tf.squeeze(x)
-	x1 = tf.reshape(x1, [-1, channels])
-	x1 = tf.transpose(x1, perm=[1, 0])
-	values = tf.reshape(x1, [-1])
-
-	delta = tf.SparseTensor(indices, values, tf.to_int64(tf.shape(output)))
-	return tf.expand_dims(tf.sparse_tensor_to_dense(tf.sparse_reorder(delta)), 0)
-
-def unpool_layer_batch(self, x, kernel, argmax):
-	'''
-	Args:
-		x: 4D tensor of shape [batch_size x height x width x channels]
-		argmax: A Tensor of type Targmax. 4-D. The flattened indices of the max
-		values chosen for each output.
-	Return:
-		4D output tensor of shape [batch_size x 2*height x kernel*width x channels]
-	'''
-	x_shape = tf.shape(x)
-	out_shape = [x_shape[0], x_shape[1]*kernel, x_shape[2]*2, x_shape[3]]
-
-	batch_size = out_shape[0]
-	height = out_shape[1]
-	width = out_shape[2]
-	channels = out_shape[3]
-
-	argmax_shape = tf.to_int64([batch_size, height, width, channels])
-	argmax = unravel_argmax(argmax, argmax_shape)
-
-	t1 = tf.to_int64(tf.range(channels))
-	t1 = tf.tile(t1, [batch_size*(width//kernel)*(height//kernel)])
-	t1 = tf.reshape(t1, [-1, channels])
-	t1 = tf.transpose(t1, perm=[1, 0])
-	t1 = tf.reshape(t1, [channels, batch_size, height//kernel, width//kernel, 1])
-	t1 = tf.transpose(t1, perm=[1, 0, 2, 3, 4])
-
-	t2 = tf.to_int64(tf.range(batch_size))
-	t2 = tf.tile(t2, [channels*(width//kernel)*(height//kernel)])
-	t2 = tf.reshape(t2, [-1, batch_size])
-	t2 = tf.transpose(t2, perm=[1, 0])
-	t2 = tf.reshape(t2, [batch_size, channels, height//kernel, width//kernel, 1])
-
-	t3 = tf.transpose(argmax, perm=[1, 4, 2, 3, 0])
-
-	t = tf.concat(4, [t2, t3, t1])
-	indices = tf.reshape(t, [(height//kernel)*(width//kernel)*channels*batch_size, 4])
-
-	x1 = tf.transpose(x, perm=[0, 3, 1, 2])
-	values = tf.reshape(x1, [-1])
-
-	delta = tf.SparseTensor(indices, values, tf.to_int64(out_shape))
-	return tf.sparse_tensor_to_dense(tf.sparse_reorder(delta))
 
 def loss(logits, labels, batch_size=None ):
 	"""Add L2Loss to all the trainable variables.
@@ -268,6 +197,7 @@ def loss(logits, labels, batch_size=None ):
 		batch_size = FLAGS.batch_size
 	labels = tf.cast(labels, tf.int64)
 	labels = labels-1
+	pdb.set_trace()
 	cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
 					labels=labels, logits=logits, name='cross_entropy_per_example')
 	cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
