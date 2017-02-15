@@ -1,2 +1,2 @@
-# CNN_S
-implementation of Return of the Devil in the Details; Delving Deep into Convolutional Nets
+# CNN_DecNN
+partial implementation of Recurrent Attentional Networks for Saliency Detection

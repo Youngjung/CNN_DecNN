@@ -40,6 +40,7 @@ import re
 import sys
 import tarfile
 
+import numpy as np
 import tensorflow as tf
 slim = tf.contrib.slim
 import pdb
@@ -157,18 +158,23 @@ def inference( images, num_classes ):
 	"""
 	end_points = {}
 	argmax = {}
+	padder = np.zeros((4,2))
+	padder[1:3,0:2] = 1
 	with tf.variable_scope('CNN_S') as sc:
-		end_points['conv1'] = slim.conv2d( images, 96, [7, 7], stride=2, padding='VALID', scope='conv1')
-		end_points['lrn'] = tf.nn.local_response_normalization( end_points['conv1'] )
-		end_points['pool1'] = slim.max_pool2d(end_points['lrn'], [3, 3], stride=3, scope='pool1')
+		end_points['conv1_bn'] = batch_norm( end_points['conv1'], scale=True, is_training=phase_train, scope='bn1')
+		end_points['pool1'] = slim.max_pool2d(end_points['conv1_bn'], [3, 3], stride=3, scope='pool1')
 		end_points['conv2'] = slim.conv2d( end_points['pool1'], 256, [5, 5], stride=1, padding='SAME', scope='conv2')
-		end_points['pool2'] = slim.max_pool2d(end_points['conv2'], [2, 2], stride=2, scope='pool2')
-		end_points['conv3'] = slim.conv2d( end_points['pool2'], 512, [5, 5], stride=1, padding='SAME', scope='conv3')
-		end_points['conv4'] = slim.conv2d( end_points['conv3'], 512, [5, 5], stride=1, padding='SAME', scope='conv4')
-		end_points['conv5'] = slim.conv2d( end_points['conv4'], 512, [5, 5], stride=1, padding='SAME', scope='conv5')
-		end_points['pool5'] = slim.max_pool2d(end_points['conv5'], [3, 3], stride=3, scope='pool5')
+		end_points['conv2_bn'] = batch_norm( end_points['conv2'], scale=True, is_training=phase_train, scope='bn2')
+		end_points['pool2'] = slim.max_pool2d(end_points['conv2_bn'], [2, 2], stride=2, scope='pool2')
+		end_points['conv3'] = slim.conv2d( end_points['pool2'], 512, [3, 3], stride=1, padding='SAME', scope='conv3')
+		end_points['conv3_bn'] = batch_norm( end_points['conv3'], scale=True, is_training=phase_train, scope='bn3')
+		end_points['conv4'] = slim.conv2d( end_points['conv3_bn'], 512, [3, 3], stride=1, padding='SAME', scope='conv4')
+		end_points['conv4_bn'] = batch_norm( end_points['conv4'], scale=True, is_training=phase_train, scope='bn4')
+		end_points['conv5'] = slim.conv2d( end_points['conv4_bn'], 512, [3, 3], stride=1, padding='SAME', scope='conv5')
+		end_points['conv5_bn'] = batch_norm( end_points['conv5'], scale=True, is_training=phase_train, scope='bn5')
+		end_points['pool5'] = slim.max_pool2d(end_points['conv5_bn'], [3, 3], stride=3, scope='pool5')
+
 	with tf.variable_scope('DecNN') as sc:
-		pdb.set_trace()
 		end_points['unpool1']  = unpool_layer_fixed( end_points['pool5'], 3 )
 		end_points['deconv1'] = slim.conv2d_transpose( end_points['unpool1'], 512, [5, 5], stride=1, padding='SAME', scope='deconv1')
 		end_points['deconv1fc'] = slim.conv2d( end_points['deconv1'], 512, [1, 1], stride=1, padding='VALID', scope='deconv1fc')
