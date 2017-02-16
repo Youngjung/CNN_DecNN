@@ -35,10 +35,10 @@ import tensorflow as tf
 from six.moves import xrange
 
 import CNN_DecNN
-from imagenet_data import *
+from RGBDsal_data import *
 
 FLAGS = tf.app.flags.FLAGS
-import flags_win
+import flags
 
 
 def tower_loss( scope, dataset ):
@@ -50,11 +50,11 @@ def tower_loss( scope, dataset ):
 	Returns:
 		 Tensor of shape [] containing the total loss for a batch of data
 	"""
-	# Get images and labels for CIFAR-10.
+	# Get images and labels for Saliency
 	images, labels = distorted_inputs( dataset )
 
 	# Build inference Graph.
-	logits, end_points = CNN_DecNN.inference(images, dataset.num_classes())
+	logits, end_points = CNN_DecNN.inference(images, dataset.num_classes(), tf.constant(True))
 
 	# Build the portion of the Graph calculating the losses. Note that we will
 	# assemble the total_loss using a custom function below.
@@ -122,7 +122,7 @@ def train( dataset ):
 		# number of batches processed * FLAGS.num_gpus.
 		global_step = tf.get_variable(
 				'global_step', [],
-				initializer=tf.constant_initializer(0), trainable=False)
+				initializer=tf.constant_initializer(FLAGS.starting_step), trainable=False)
 
 		# Calculate the learning rate schedule.
 		num_batches_per_epoch = (dataset.num_examples_per_epoch() / FLAGS.batch_size)
@@ -244,8 +244,7 @@ def train( dataset ):
 
 
 def main(argv=None):	# pylint: disable=unused-argument
-	dataset = ImageNetData( subset=FLAGS.subset )
-	tf.gfile.MakeDirs(FLAGS.train_dir)
+	dataset = SaliencyRGBD( subset=FLAGS.subset )
 	train( dataset )
 
 

@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 # General parameters.
-tf.app.flags.DEFINE_string('train_dir', '/home/cvpr-gb/hdd4TBmount/train_dir/CNN_S',
+tf.app.flags.DEFINE_string('train_dir', '/home/cvpr-gb/hdd4TBmount/train_dir/CNN_DecNN',
                            """Directory where to write event logs """
                            """and checkpoint.""")
 tf.app.flags.DEFINE_integer('max_steps', 1000000,
@@ -21,7 +21,8 @@ tf.app.flags.DEFINE_boolean('fine_tune', False,
 tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
                            """If specified, restore this pretrained model """
                            """before beginning any training.""")
-
+tf.app.flags.DEFINE_integer('starting_step', 1,
+                             """starting step.""")
 # **IMPORTANT**
 # Please note that this learning rate schedule is heavily dependent on the
 # hardware architecture, batch size and any changes to the model architecture
@@ -43,17 +44,15 @@ tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
 # Basic model parameters.
 tf.app.flags.DEFINE_integer('batch_size', 128,
 								"""Number of images to process in a batch.""")
-tf.app.flags.DEFINE_string('data_dir', '/home/cvpr-gb/hdd4TBmount/DataSet/ImageNet',
+tf.app.flags.DEFINE_string('data_dir', '/home/cvpr-gb/hdd4TBmount/DataSet/Saliency/RGBD_Salient_Object_Detection/output',
 								"""Path to the ImageNet data directory.""")
-tf.app.flags.DEFINE_boolean('use_fp16', False,
-								"""Train the model using fp16.""")
 
 # Dataset parameters
 tf.app.flags.DEFINE_string('subset', 'train',
 								"""Either 'train' or 'validation'.""")
 tf.app.flags.DEFINE_integer('image_size', 224,
 								"""Provide square images of this size.""")
-tf.app.flags.DEFINE_integer('num_preprocess_threads', 4,
+tf.app.flags.DEFINE_integer('num_preprocess_threads', 16,
 								"""Number of preprocessing threads per tower. """
 								"""Please make this a multiple of 4.""")
 tf.app.flags.DEFINE_integer('num_readers', 4,
