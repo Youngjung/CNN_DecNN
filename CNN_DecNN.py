@@ -43,10 +43,11 @@ import tarfile
 import numpy as np
 import tensorflow as tf
 slim = tf.contrib.slim
+batch_norm = tf.contrib.layers.batch_norm
 import pdb
 
 FLAGS = tf.app.flags.FLAGS
-batch_norm = tf.contrib.layers.batch_norm
+import flags
 from unpool import unpool_layer_fixed
 from unpool import unpool2x2
 
@@ -54,7 +55,7 @@ from unpool import unpool2x2
 MOVING_AVERAGE_DECAY = 0.9999		 # The decay to use for the moving average.
 NUM_EPOCHS_PER_DECAY = 350.0			# Epochs after which learning rate decays.
 LEARNING_RATE_DECAY_FACTOR = 0.1	# Learning rate decay factor.
-INITIAL_LEARNING_RATE = 0.1			 # Initial learning rate.
+INITIAL_LEARNING_RATE = 0.01 # Initial learning rate.
 
 # If a model is trained with multiple GPUs, prefix all Op names with tower_name
 # to differentiate the operations. Note that this prefix is removed from the
@@ -147,6 +148,39 @@ def inputs(eval_data):
 		labels = tf.cast(labels, tf.float16)
 	return images, labels
 
+def inference_woBN( images, num_classes, phase_train ):
+	"""Build the CNN_DecNN model.
+
+	Args:
+		images: Images returned from distorted_inputs() or inputs().
+
+	Returns:
+		Logits.
+	"""
+	end_points = {}
+	with tf.variable_scope('CNN_S') as sc:
+		end_points['conv1'] = slim.conv2d( images, 96, [7, 7], stride=2, padding='VALID', scope='conv1')
+		end_points['lrn'] = tf.nn.local_response_normalization( end_points['conv1'] )
+		end_points['pool1'] = slim.max_pool2d(end_points['lrn'], [3, 3], stride=3, scope='pool1', padding='SAME' )
+		end_points['conv2'] = slim.conv2d( end_points['pool1'], 256, [5, 5], stride=1, padding='SAME', scope='conv2')
+		end_points['pool2'] = slim.max_pool2d(end_points['conv2'], [2, 2], stride=2, scope='pool2', padding='SAME' )
+		end_points['conv3'] = slim.conv2d( end_points['pool2'], 512, [3, 3], stride=1, padding='SAME', scope='conv3')
+		end_points['conv4'] = slim.conv2d( end_points['conv3'], 512, [3, 3], stride=1, padding='SAME', scope='conv4')
+		end_points['conv5'] = slim.conv2d( end_points['conv4'], 512, [3, 3], stride=1, padding='SAME', scope='conv5')
+		end_points['pool5'] = slim.max_pool2d(end_points['conv5'], [3, 3], stride=3, scope='pool5', padding='SAME')
+	with tf.variable_scope('DecNN') as sc:
+		end_points['unpool1']  = unpool2x2( end_points['pool5'])
+		end_points['deconv1'] = slim.conv2d_transpose( end_points['unpool1'], 512, [5, 5], stride=1, padding='SAME', scope='deconv1')
+		end_points['deconv1fc'] = slim.conv2d( end_points['deconv1'], 512, [1, 1], stride=1, padding='VALID', scope='deconv1fc')
+		end_points['unpool2']  = unpool2x2( end_points['deconv1fc'])
+		end_points['deconv2'] = slim.conv2d_transpose( end_points['unpool2'], 512, [5, 5], stride=1, padding='SAME', scope='deconv2')
+		end_points['deconv2fc'] = slim.conv2d( end_points['deconv2'], 256, [1, 1], stride=1, padding='VALID', scope='deconv2fc')
+		end_points['unpool3']  = unpool2x2( end_points['deconv2fc'])
+		end_points['deconv3'] = slim.conv2d_transpose( end_points['unpool3'], 512, [5, 5], stride=1, padding='SAME', scope='deconv3')
+		end_points['deconv3fc'] = slim.conv2d( end_points['deconv3'], 2, [1, 1], stride=1, padding='VALID', scope='deconv3fc')
+	net = end_points['deconv3fc']
+	return net, end_points
+
 
 def inference( images, num_classes, phase_train ):
 	"""Build the CNN_DecNN model.
@@ -158,47 +192,40 @@ def inference( images, num_classes, phase_train ):
 		Logits.
 	"""
 	end_points = {}
-	argmax = {}
-	padder = np.zeros((4,2))
-	padder[1:3,0:2] = 1
 	with tf.variable_scope('CNN_S') as sc:
-		end_points['conv1'] = slim.conv2d( images, 96, [7, 7], stride=2, padding='SAME', scope='conv1')
+		end_points['conv1'] = slim.conv2d( images, 96, [7, 7], stride=2, padding='VALID', scope='conv1')
 		end_points['conv1_bn'] = batch_norm( end_points['conv1'], scale=True, is_training=phase_train, scope='bn1')
-		end_points['pool1'] = slim.max_pool2d(end_points['conv1_bn'], [3, 3], stride=3, scope='pool1')
+		end_points['pool1'] = slim.max_pool2d(end_points['conv1_bn'], [3, 3], stride=3, scope='pool1', padding='SAME' )
 		end_points['conv2'] = slim.conv2d( end_points['pool1'], 256, [5, 5], stride=1, padding='SAME', scope='conv2')
 		end_points['conv2_bn'] = batch_norm( end_points['conv2'], scale=True, is_training=phase_train, scope='bn2')
-		end_points['pool2'] = slim.max_pool2d(end_points['conv2_bn'], [2, 2], stride=2, scope='pool2')
+		end_points['pool2'] = slim.max_pool2d(end_points['conv2_bn'], [2, 2], stride=2, scope='pool2', padding='SAME' )
 		end_points['conv3'] = slim.conv2d( end_points['pool2'], 512, [3, 3], stride=1, padding='SAME', scope='conv3')
 		end_points['conv3_bn'] = batch_norm( end_points['conv3'], scale=True, is_training=phase_train, scope='bn3')
 		end_points['conv4'] = slim.conv2d( end_points['conv3_bn'], 512, [3, 3], stride=1, padding='SAME', scope='conv4')
 		end_points['conv4_bn'] = batch_norm( end_points['conv4'], scale=True, is_training=phase_train, scope='bn4')
 		end_points['conv5'] = slim.conv2d( end_points['conv4_bn'], 512, [3, 3], stride=1, padding='SAME', scope='conv5')
 		end_points['conv5_bn'] = batch_norm( end_points['conv5'], scale=True, is_training=phase_train, scope='bn5')
-		end_points['pool5'] = slim.max_pool2d(end_points['conv5_bn'], [3, 3], stride=3, scope='pool5')
-	pdb.set_trace()
+		end_points['pool5'] = slim.max_pool2d(end_points['conv5_bn'], [3, 3], stride=3, scope='pool5', padding='SAME')
 	with tf.variable_scope('DecNN') as sc:
-		#end_points['unpool1']  = unpool_layer_fixed( end_points['pool5'], 2 )
 		end_points['unpool1']  = unpool2x2( end_points['pool5'])
 		end_points['deconv1'] = slim.conv2d_transpose( end_points['unpool1'], 512, [5, 5], stride=1, padding='SAME', scope='deconv1')
 		end_points['deconv1fc'] = slim.conv2d( end_points['deconv1'], 512, [1, 1], stride=1, padding='VALID', scope='deconv1fc')
-		#end_points['unpool2']  = unpool_layer_fixed( end_points['deconv1fc'], 2 )
 		end_points['unpool2']  = unpool2x2( end_points['deconv1fc'])
 		end_points['deconv2'] = slim.conv2d_transpose( end_points['unpool2'], 512, [5, 5], stride=1, padding='SAME', scope='deconv2')
 		end_points['deconv2fc'] = slim.conv2d( end_points['deconv2'], 256, [1, 1], stride=1, padding='VALID', scope='deconv2fc')
-		#end_points['unpool3']  = unpool_layer_fixed( end_points['deconv2fc'], 2 )
 		end_points['unpool3']  = unpool2x2( end_points['deconv2fc'])
 		end_points['deconv3'] = slim.conv2d_transpose( end_points['unpool3'], 512, [5, 5], stride=1, padding='SAME', scope='deconv3')
-		end_points['deconv3fc'] = slim.conv2d( end_points['deconv3'], 96, [1, 1], stride=1, padding='VALID', scope='deconv3fc')
+		end_points['deconv3fc'] = slim.conv2d( end_points['deconv3'], 2, [1, 1], stride=1, padding='VALID', scope='deconv3fc')
 	net = end_points['deconv3fc']
-	pdb.set_trace()
 	return net, end_points
 
-def loss(logits, labels, batch_size=None ):
+def loss(logits, labels, num_classes, batch_size=None ):
 	"""Add L2Loss to all the trainable variables.
 
 	Add summary for "Loss" and "Loss/avg".
 	Args:
 		logits: Logits from inference().
+				[batch_size, numClaslses, 
 		labels: Labels from distorted_inputs or inputs(). 1-D tensor
 						of shape [batch_size]
 
@@ -208,31 +235,29 @@ def loss(logits, labels, batch_size=None ):
 	if not batch_size:
 		batch_size = FLAGS.batch_size
 	labels = tf.cast(labels, tf.int64)
-	labels = labels-1
+	#labels = tf.transpose( logits, perm=[0,2,3,1] )
+	labels_shape = labels.get_shape().as_list()
+	labels = tf.reshape( labels, (-1, 1) )
+	labels = tf.squeeze( labels )
+
+	#logits = tf.transpose( logits, perm=[0,2,3,1] )
+	logits_target_size = labels_shape[1:3]
+	logits_resized = tf.image.resize_images(logits, logits_target_size, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+	logits = tf.reshape( logits_resized, (-1, num_classes) )
+
+	#epsilon = tf.constant(value=1e-4)
+	#softmax = tf.nn.softmax(logits) + epsilon
+
+	#cross_entropy = -tf.reduce_sum( labels*tf.log(softmax), reduction_indices=[1] )
 	cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-					labels=labels, logits=logits, name='cross_entropy_per_example')
-	cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+						labels=labels, logits=logits, name='cross_entropy_per_example' )
+	cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy_mean')
 	tf.add_to_collection('losses', cross_entropy_mean)
 
 	# The total loss is defined as the cross entropy loss plus all of the weight
 	# decay terms (L2 loss).
 	return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
-
-	# Reshape the labels into a dense Tensor of
-	# shape [FLAGS.batch_size, num_classes].
-#	sparse_labels = tf.reshape(labels, [batch_size, 1])
-##	sparse_labels = tf.subtract( sparse_labels, 1 )
-#	indices = tf.reshape(tf.range(batch_size), [batch_size, 1])
-#	concated = tf.concat(1, [indices, sparse_labels])
-#	num_classes = logits[0].get_shape()[-1].value
-#	dense_labels = tf.sparse_to_dense(concated,[batch_size, num_classes],1.0, 0.0)
-#
-#	# Cross entropy loss for the main softmax prediction.
-#	slim.losses.softmax_cross_entropy(logits[0],
-#									dense_labels,
-#									label_smoothing=0.1,
-#									weight=1.0)
 
 def _add_loss_summaries(total_loss):
 	"""Add summaries for losses in CIFAR-10 model.

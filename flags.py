@@ -18,6 +18,8 @@ tf.app.flags.DEFINE_boolean('fine_tune', False,
                             """If set, randomly initialize the final layer """
                             """of weights in order to train the network on a """
                             """new task.""")
+tf.app.flags.DEFINE_string('pretrained_cnn_checkpoint_path', '/home/cvpr-gb/hdd4TBmount/train_dir/CNN_S/model.ckpt-204000',
+                           """restore this pretrained model before beginning any training.""")
 tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
                            """If specified, restore this pretrained model """
                            """before beginning any training.""")
@@ -52,7 +54,7 @@ tf.app.flags.DEFINE_string('subset', 'train',
 								"""Either 'train' or 'validation'.""")
 tf.app.flags.DEFINE_integer('image_size', 224,
 								"""Provide square images of this size.""")
-tf.app.flags.DEFINE_integer('num_preprocess_threads', 16,
+tf.app.flags.DEFINE_integer('num_preprocess_threads', 1,
 								"""Number of preprocessing threads per tower. """
 								"""Please make this a multiple of 4.""")
 tf.app.flags.DEFINE_integer('num_readers', 4,

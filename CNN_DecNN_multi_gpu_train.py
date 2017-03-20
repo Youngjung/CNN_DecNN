@@ -37,6 +37,7 @@ from six.moves import xrange
 import CNN_DecNN
 from RGBDsal_data import *
 
+slim = tf.contrib.slim
 FLAGS = tf.app.flags.FLAGS
 import flags
 
@@ -54,11 +55,11 @@ def tower_loss( scope, dataset ):
 	images, labels = distorted_inputs( dataset )
 
 	# Build inference Graph.
-	logits, end_points = CNN_DecNN.inference(images, dataset.num_classes(), tf.constant(True))
+	logits, _ = CNN_DecNN.inference_woBN(images, dataset.num_classes(), tf.constant(True))
 
 	# Build the portion of the Graph calculating the losses. Note that we will
 	# assemble the total_loss using a custom function below.
-	_ = CNN_DecNN.loss(logits, labels)
+	_ = CNN_DecNN.loss(logits, labels, 2)
 
 	# Assemble all of the losses for the current tower only.
 	losses = tf.get_collection('losses', scope)
@@ -131,11 +132,13 @@ def train( dataset ):
 		print( decay_steps )
 
 		# Decay the learning rate exponentially based on the number of steps.
+		print( 'initial learning rate = ', CNN_DecNN.INITIAL_LEARNING_RATE )
 		lr = tf.train.exponential_decay(CNN_DecNN.INITIAL_LEARNING_RATE,
 												global_step,
 												decay_steps,
 												CNN_DecNN.LEARNING_RATE_DECAY_FACTOR,
 												staircase=True)
+		print( lr )
 
 		# Create an optimizer that performs gradient descent.
 		opt = tf.train.GradientDescentOptimizer(lr)
@@ -180,9 +183,7 @@ def train( dataset ):
 		# Add histograms for gradients.
 		for grad, var in grads:
 			if grad is not None:
-				summaries.append(
-						tf.summary.histogram(var.op.name + '/gradients',
-																										grad))
+				summaries.append(tf.summary.histogram(var.op.name + '/gradients',grad))
 
 		# Apply the gradients to adjust the shared variables.
 		apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
@@ -210,6 +211,12 @@ def train( dataset ):
 		init = tf.global_variables_initializer()
 
 		sess.run(init)
+		
+		# Load pre-trained CNN_S variables
+		pretrained_variables_to_restore = slim.get_variables(scope="CNN_S")
+		pretrained_restorer = tf.train.Saver( pretrained_variables_to_restore )
+		pretrained_restorer.restore( sess, FLAGS.pretrained_cnn_checkpoint_path )
+		print('%s: Pre-trained model restored from %s' %(datetime.now(), FLAGS.pretrained_cnn_checkpoint_path))
 
 		# Start the queue runners.
 		tf.train.start_queue_runners(sess=sess)

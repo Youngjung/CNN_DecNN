@@ -44,24 +44,25 @@ import sys
 
 import pdb
 
-import CNN_S
-from imagenet_data import *
+import CNN_DecNN
+from RGBDsal_data import *
 
+slim = tf.contrib.slim
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_string('eval_dir', '/home/cvpr-gb/hdd4TBmount/eval_dir/CNN_S',
+tf.app.flags.DEFINE_string('eval_dir', '/home/cvpr-gb/hdd4TBmount/eval_dir/CNN_DecNN',
 							 """Directory where to write event logs.""")
-tf.app.flags.DEFINE_string('checkpoint_dir', '/home/cvpr-gb/hdd4TBmount/train_dir/CNN_S',
+tf.app.flags.DEFINE_string('checkpoint_dir', '/home/cvpr-gb/hdd4TBmount/train_dir/CNN_DecNN',
 							 """Directory where to read model checkpoints.""")
 tf.app.flags.DEFINE_integer('eval_interval_secs', 60 * 5,
 							"""How often to run the eval.""")
-tf.app.flags.DEFINE_integer('num_examples', 10000,
+tf.app.flags.DEFINE_integer('num_examples', 10,
 								"""Number of examples to run.""")
 tf.app.flags.DEFINE_boolean('run_once', False,
 							 """Whether to run eval only once.""")
 
 
-def eval_once(saver, summary_writer, top_k_op, summary_op):
+def eval_once(saver, summary_writer, top_k_op, summary_op, nPixels_per_iter):
 	"""Run Eval once.
 
 	Args:
@@ -91,9 +92,10 @@ def eval_once(saver, summary_writer, top_k_op, summary_op):
 				threads.extend(qr.create_threads(sess, coord=coord, daemon=True,
 																				 start=True))
 
+			pdb.set_trace()
 			num_iter = int(math.ceil(FLAGS.num_examples / FLAGS.batch_size))
 			true_count = 0	# Counts the number of correct predictions.
-			total_sample_count = num_iter * FLAGS.batch_size
+			total_sample_count = num_iter * nPixels_per_iter
 			step = 0
 			while step < num_iter and not coord.should_stop():
 				sys.stdout.write( "%d/%d\r"%(step,num_iter) )
@@ -122,19 +124,24 @@ def evaluate( dataset ):
 	with tf.Graph().as_default() as g:
 		# Get images and labels for CIFAR-10.
 		images, labels = inputs( dataset )
-		labels = labels-1
+		shape = images.get_shape().as_list()
+		batch_size = shape[0]
+		height = shape[1]
+		width = shape[2]
 
 		# Build a Graph that computes the logits predictions from the
 		# inference model.
-		logits, _ = CNN_S.inference(images, dataset.num_classes() )
+		logits, _ = CNN_DecNN.inference_woBN(images, dataset.num_classes(), tf.constant(False) )
+		logits_resized = tf.image.resize_nearest_neighbor( logits, [height, width] )
+		logits_flatten = tf.reshape(logits_resized, [-1,dataset.num_classes()] )
 
 		# Calculate predictions.
-		top_k_op = tf.nn.in_top_k(logits, labels, 1)
+		top_k_op = tf.nn.in_top_k( logits_flatten, tf.reshape(  tf.to_int32(labels),[-1] ), 1)
 
-		# Restore the moving average version of the learned variables for eval.
-		variable_averages = tf.train.ExponentialMovingAverage(
-				CNN_S.MOVING_AVERAGE_DECAY)
-		variables_to_restore = variable_averages.variables_to_restore()
+		# Restore 
+		CNNpart = slim.get_variables("CNN_S")
+		DecNNpart = slim.get_variables("DecNN")
+		variables_to_restore = CNNpart + DecNNpart
 		saver = tf.train.Saver(variables_to_restore)
 
 		# Build the summary operation based on the TF collection of Summaries.
@@ -144,14 +151,14 @@ def evaluate( dataset ):
 
 		while True:
 			print( "evaluating..." )
-			eval_once(saver, summary_writer, top_k_op, summary_op)
+			eval_once(saver, summary_writer, top_k_op, summary_op, batch_size*height*width)
 			if FLAGS.run_once:
 				break
 			time.sleep(FLAGS.eval_interval_secs)
 
 
 def main(argv=None):	# pylint: disable=unused-argument
-	dataset = ImageNetData( subset="validation" )
+	dataset = SaliencyRGBD( subset="validation" )
 	tf.gfile.MakeDirs(FLAGS.eval_dir)
 	evaluate( dataset )
 
